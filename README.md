@@ -32,23 +32,32 @@ Lightweight all-in-one monitoring solution with **Prometheus**, **Grafana**, **A
 
 ## 🚀 Quick Start
 
-### Local Development
+### ⚡ Fastest Way (1 Command - No Build!)
 
 ```bash
-# Clone repository
-git clone git@github.com:ChandanMohonto/devops-monitoring-observability-stack.git
+docker run -d --name monitoring -p 3000:3000 -p 9090:9090 -p 9093:9093 \
+  -e GRAFANA_ADMIN_PASSWORD=YourPassword123 \
+  ghcr.io/chandanmohonto/devops-monitoring-observability-stack:latest
+```
+
+**Access:** http://localhost:3000 (admin/YourPassword123)
+
+### 📦 Full Stack (With Node Exporter + cAdvisor)
+
+```bash
+# Get configuration files
+git clone https://github.com/ChandanMohonto/devops-monitoring-observability-stack.git
 cd devops-monitoring-observability-stack
 
-# Copy and configure environment variables
-cp .env .env.local
-nano .env.local  # Edit with your credentials
+# Configure
+cp .env.example .env
+nano .env  # Edit your settings
 
-# Start with docker-compose (separate containers)
-docker-compose up -d
-
-# OR use production image from GHCR
+# Pull and run (no build needed!)
 docker-compose -f docker-compose.production.yml up -d
 ```
+
+**All images are pre-built and pulled from GHCR automatically!**
 
 ### Access Services
 
