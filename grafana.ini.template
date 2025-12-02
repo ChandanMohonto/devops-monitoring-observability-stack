@@ -1,0 +1,41 @@
+[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+provisioning = /etc/grafana/provisioning
+
+[server]
+protocol = http
+http_addr = 0.0.0.0
+http_port = 3000
+
+[database]
+type = sqlite3
+path = grafana.db
+
+[security]
+admin_user = ${GRAFANA_ADMIN_USER}
+admin_password = ${GRAFANA_ADMIN_PASSWORD}
+
+[users]
+allow_sign_up = false
+
+[auth.anonymous]
+enabled = false
+
+[smtp]
+enabled = true
+host = ${SMTP_HOST}:${SMTP_PORT}
+user = ${SMTP_USERNAME}
+password = ${SMTP_PASSWORD}
+skip_verify = false
+from_address = ${SMTP_FROM}
+from_name = MYKEY Monitoring
+
+[log]
+mode = console
+level = info
+
+[analytics]
+reporting_enabled = false
+check_for_updates = false

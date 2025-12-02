@@ -1,0 +1,175 @@
+name: Build and Push to GHCR
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.environment }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  test-deployment:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test image pulls successfully
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Test container starts
+        run: |
+          docker run -d --name test-monitoring \
+            -p 9090:9090 -p 9093:9093 -p 3000:3000 \
+            -e SMTP_HOST=smtp.gmail.com \
+            -e SMTP_PORT=587 \
+            -e SMTP_FROM=test@example.com \
+            -e SMTP_USERNAME=test@example.com \
+            -e SMTP_PASSWORD=testpass \
+            -e SLACK_WEBHOOK_URL=https://hooks.slack.com/test \
+            -e EMAIL_MAIN=admin@example.com \
+            -e EMAIL_CRITICAL=admin@example.com \
+            -e EMAIL_WARNING=admin@example.com \
+            -e EMAIL_INFRA=admin@example.com \
+            -e GRAFANA_ADMIN_USER=admin \
+            -e GRAFANA_ADMIN_PASSWORD=admin \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+          # Wait for services to start
+          sleep 30
+
+      - name: Health check - Prometheus
+        run: |
+          curl -f http://localhost:9090/-/healthy || exit 1
+          echo "✅ Prometheus is healthy"
+
+      - name: Health check - Alertmanager
+        run: |
+          curl -f http://localhost:9093/-/healthy || exit 1
+          echo "✅ Alertmanager is healthy"
+
+      - name: Health check - Grafana
+        run: |
+          curl -f http://localhost:3000/api/health || exit 1
+          echo "✅ Grafana is healthy"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop test-monitoring || true
+          docker rm test-monitoring || true
+
+  notify:
+    needs: [build-and-push, security-scan, test-deployment]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Send notification
+        run: |
+          if [ "${{ needs.build-and-push.result }}" == "success" ] && \
+             [ "${{ needs.test-deployment.result }}" == "success" ]; then
+            echo "✅ Build and deployment test successful!"
+            echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+            echo "Available tags: latest, ${{ github.sha }}"
+          else
+            echo "❌ Build or deployment test failed"
+            exit 1
+          fi

@@ -1,0 +1,97 @@
+version: "3.8"
+
+services:
+  # All-in-One Monitoring Stack (Prometheus + Grafana + Alertmanager)
+  monitoring-stack:
+    image: ghcr.io/chandanmohonto/devops-monitoring-observability-stack:latest
+    container_name: monitoring-stack
+    restart: unless-stopped
+    ports:
+      - "9090:9090"  # Prometheus
+      - "9093:9093"  # Alertmanager
+      - "3000:3000"  # Grafana
+    environment:
+      # SMTP Configuration
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_FROM=${SMTP_FROM}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+
+      # Email Recipients
+      - EMAIL_MAIN=${EMAIL_MAIN}
+      - EMAIL_CRITICAL=${EMAIL_CRITICAL}
+      - EMAIL_WARNING=${EMAIL_WARNING}
+      - EMAIL_INFRA=${EMAIL_INFRA}
+
+      # Slack Configuration
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - SLACK_CHANNEL_CRITICAL=${SLACK_CHANNEL_CRITICAL:-#critical-alerts}
+      - SLACK_CHANNEL_WARNING=${SLACK_CHANNEL_WARNING:-#monitoring-alerts}
+      - SLACK_CHANNEL_INFRA=${SLACK_CHANNEL_INFRA:-#infrastructure}
+
+      # Grafana Admin
+      - GRAFANA_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - prometheus-data:/var/lib/prometheus
+      - grafana-data:/var/lib/grafana
+      - alertmanager-data:/var/lib/alertmanager
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy", "&&", "curl", "-f", "http://localhost:9093/-/healthy", "&&", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Node Exporter - System metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - observability
+
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - observability
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+networks:
+  observability:
+    driver: bridge

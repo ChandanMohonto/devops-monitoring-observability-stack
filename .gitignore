@@ -1,0 +1,38 @@
+# Environment variables (NEVER commit!)
+.env
+.env.local
+.env.production
+.env.staging
+
+# Data volumes
+prometheus-data/
+grafana-data/
+alertmanager-data/
+
+# Generated config files
+alertmanager.yml
+grafana.ini
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
